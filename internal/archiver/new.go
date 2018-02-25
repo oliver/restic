@@ -19,11 +19,26 @@ import (
 // dirs). If false is returned, files are ignored and dirs are not even walked.
 type SelectFunc func(item string, fi os.FileInfo) bool
 
+// ReportFunc is called for all files in the backup.
+type ReportFunc func(item string, fi os.FileInfo, action ReportAction)
+
+// ReportAction describes what the archiver decided to do with a new file.
+type ReportAction int
+
+// These constants are the possible report actions
+const (
+	ReportActionUnknown   = 0
+	ReportActionNew       = iota // New file, will be archived as is
+	ReportActionUnchanged = iota // File is unchanged, the old content from the previous snapshot is used
+)
+
 // NewArchiver saves a directory structure to the repo.
 type NewArchiver struct {
 	Repo   restic.Repository
 	Select SelectFunc
 	FS     fs.FS
+
+	Report ReportFunc
 }
 
 // Valid returns an error if anything is missing.
