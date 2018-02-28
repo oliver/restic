@@ -473,6 +473,12 @@ func runBackup(opts BackupOptions, gopts GlobalOptions, args []string) error {
 		Repo:   repo,
 		Select: selectFilter,
 		FS:     &fs.Local{},
+		Report: func(item string, fi os.FileInfo, action archiver.ReportAction) {
+			if action == archiver.ReportActionUnchanged {
+				return
+			}
+			fmt.Printf("%v %v\n", action.Str(), item)
+		},
 	}
 
 	// _, id, err := arch.Snapshot(gopts.ctx, newArchiveProgress(gopts, stat), target, opts.Tags, opts.Hostname, parentSnapshotID, timeStamp)

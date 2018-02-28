@@ -2,6 +2,7 @@ package archiver
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path"
@@ -30,7 +31,35 @@ const (
 	ReportActionUnknown   = 0
 	ReportActionNew       = iota // New file, will be archived as is
 	ReportActionUnchanged = iota // File is unchanged, the old content from the previous snapshot is used
+	ReportActionModified  = iota // File has been modified, data will be re-read
 )
+
+func (a ReportAction) String() string {
+	switch a {
+	case ReportActionNew:
+		return "new"
+	case ReportActionUnchanged:
+		return "unchanged"
+	case ReportActionModified:
+		return "modified"
+	default:
+		return fmt.Sprintf("unknown (%v)", a)
+	}
+}
+
+// Str returns a single character for each action.
+func (a ReportAction) Str() string {
+	switch a {
+	case ReportActionNew:
+		return "+"
+	case ReportActionUnchanged:
+		return " "
+	case ReportActionModified:
+		return "m"
+	default:
+		return "U"
+	}
+}
 
 // NewArchiver saves a directory structure to the repo.
 type NewArchiver struct {
@@ -183,10 +212,16 @@ func (arch *NewArchiver) saveDir(ctx context.Context, prefix string, fi os.FileI
 		case fs.IsRegularFile(fi):
 			// use oldNode if the file hasn't changed
 			if oldNode != nil && !oldNode.IsNewer(pathname, fi) {
+				arch.Report(pathname, fi, ReportActionUnchanged)
 				debug.Log("%v hasn't changed, returning old node", pathname)
 				node = oldNode
 				err = nil
 			} else {
+				if oldNode != nil {
+					arch.Report(pathname, fi, ReportActionModified)
+				} else {
+					arch.Report(pathname, fi, ReportActionNew)
+				}
 				node, err = arch.SaveFile(ctx, pathname)
 			}
 		case fi.Mode().IsDir():
@@ -264,9 +299,15 @@ func (arch *NewArchiver) Save(ctx context.Context, prefix, target string, previo
 		// use previous node if the file hasn't changed
 		if previous != nil && !previous.IsNewer(target, fi) {
 			debug.Log("%v hasn't changed, returning old node", target)
+			arch.Report(target, fi, ReportActionUnchanged)
 			return previous, err
 		}
 
+		if previous != nil {
+			arch.Report(target, fi, ReportActionModified)
+		} else {
+			arch.Report(target, fi, ReportActionNew)
+		}
 		node, err = arch.SaveFile(ctx, target)
 	case fi.IsDir():
 		oldSubtree := arch.loadSubtree(ctx, previous)
