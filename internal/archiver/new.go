@@ -43,7 +43,7 @@ func (a ReportAction) String() string {
 	case ReportActionModified:
 		return "modified"
 	default:
-		return fmt.Sprintf("unknown (%v)", a)
+		return fmt.Sprintf("unknown (%d)", a)
 	}
 }
 
@@ -85,6 +85,15 @@ func (arch *NewArchiver) Valid() error {
 	}
 
 	return nil
+}
+
+// report calls arch.Report if it is set.
+func (arch *NewArchiver) report(item string, fi os.FileInfo, action ReportAction) {
+	if arch.Report == nil {
+		return
+	}
+
+	arch.Report(item, fi, action)
 }
 
 // SaveFile chunks a file and saves it to the repository.
@@ -212,15 +221,15 @@ func (arch *NewArchiver) saveDir(ctx context.Context, prefix string, fi os.FileI
 		case fs.IsRegularFile(fi):
 			// use oldNode if the file hasn't changed
 			if oldNode != nil && !oldNode.IsNewer(pathname, fi) {
-				arch.Report(pathname, fi, ReportActionUnchanged)
+				arch.report(pathname, fi, ReportActionUnchanged)
 				debug.Log("%v hasn't changed, returning old node", pathname)
 				node = oldNode
 				err = nil
 			} else {
 				if oldNode != nil {
-					arch.Report(pathname, fi, ReportActionModified)
+					arch.report(pathname, fi, ReportActionModified)
 				} else {
-					arch.Report(pathname, fi, ReportActionNew)
+					arch.report(pathname, fi, ReportActionNew)
 				}
 				node, err = arch.SaveFile(ctx, pathname)
 			}
@@ -299,14 +308,14 @@ func (arch *NewArchiver) Save(ctx context.Context, prefix, target string, previo
 		// use previous node if the file hasn't changed
 		if previous != nil && !previous.IsNewer(target, fi) {
 			debug.Log("%v hasn't changed, returning old node", target)
-			arch.Report(target, fi, ReportActionUnchanged)
+			arch.report(target, fi, ReportActionUnchanged)
 			return previous, err
 		}
 
 		if previous != nil {
-			arch.Report(target, fi, ReportActionModified)
+			arch.report(target, fi, ReportActionModified)
 		} else {
-			arch.Report(target, fi, ReportActionNew)
+			arch.report(target, fi, ReportActionNew)
 		}
 		node, err = arch.SaveFile(ctx, target)
 	case fi.IsDir():
