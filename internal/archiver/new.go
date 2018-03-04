@@ -181,78 +181,6 @@ func (arch *NewArchiver) loadSubtree(ctx context.Context, node *restic.Node) *re
 	return tree
 }
 
-// saveDir stores a directory in the repo and returns the tree.
-func (arch *NewArchiver) saveDir(ctx context.Context, prefix string, fi os.FileInfo, dir string, previous *restic.Tree) (*restic.Tree, error) {
-	debug.Log("%v %v", prefix, dir)
-
-	f, err := arch.FS.Open(dir)
-	if err != nil {
-		return nil, errors.Wrap(err, "Open")
-	}
-
-	entries, err := f.Readdir(-1)
-	if err != nil {
-		return nil, errors.Wrap(err, "Readdir")
-	}
-
-	err = f.Close()
-	if err != nil {
-		return nil, errors.Wrap(err, "Close")
-	}
-
-	tree := restic.NewTree()
-	for _, fi := range entries {
-		pathname := filepath.Join(dir, fi.Name())
-
-		abspathname, err := filepath.Abs(pathname)
-		if err != nil {
-			return nil, err
-		}
-
-		if !arch.Select(abspathname, fi) {
-			debug.Log("% is excluded", pathname)
-			continue
-		}
-
-		oldNode := previous.Find(fi.Name())
-
-		var node *restic.Node
-		switch {
-		case fs.IsRegularFile(fi):
-			// use oldNode if the file hasn't changed
-			if oldNode != nil && !oldNode.IsNewer(pathname, fi) {
-				arch.report(pathname, fi, ReportActionUnchanged)
-				debug.Log("%v hasn't changed, returning old node", pathname)
-				node = oldNode
-				err = nil
-			} else {
-				if oldNode != nil {
-					arch.report(pathname, fi, ReportActionModified)
-				} else {
-					arch.report(pathname, fi, ReportActionNew)
-				}
-				node, err = arch.SaveFile(ctx, pathname)
-			}
-		case fi.Mode().IsDir():
-			oldSubtree := arch.loadSubtree(ctx, oldNode)
-			node, err = arch.SaveDir(ctx, path.Join(prefix, fi.Name()), fi, pathname, oldSubtree)
-		default:
-			node, err = restic.NodeFromFileInfo(pathname, fi)
-		}
-
-		if err != nil {
-			return nil, err
-		}
-
-		err = tree.Insert(node)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return tree, nil
-}
-
 // SaveDir stores a directory in the repo and returns the node.
 func (arch *NewArchiver) SaveDir(ctx context.Context, prefix string, fi os.FileInfo, dir string, previous *restic.Tree) (*restic.Node, error) {
 	debug.Log("%v %v", prefix, dir)
@@ -262,9 +190,29 @@ func (arch *NewArchiver) SaveDir(ctx context.Context, prefix string, fi os.FileI
 		return nil, err
 	}
 
-	tree, err := arch.saveDir(ctx, prefix, fi, dir, previous)
+	entries, err := readdir(arch.FS, dir)
 	if err != nil {
 		return nil, err
+	}
+
+	tree := restic.NewTree()
+	for _, fi := range entries {
+		pathname := filepath.Join(dir, fi.Name())
+		oldNode := previous.Find(fi.Name())
+		node, err := arch.Save(ctx, prefix, pathname, oldNode)
+		if err != nil {
+			return nil, err
+		}
+
+		// Save returns a nil node if the target is excluded
+		if node == nil {
+			continue
+		}
+
+		err = tree.Insert(node)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	id, err := arch.Repo.SaveTree(ctx, tree)
@@ -431,6 +379,26 @@ func (arch *NewArchiver) SaveArchiveTree(ctx context.Context, prefix string, atr
 	}
 
 	return tree, nil
+}
+
+func readdir(fs fs.FS, dir string) ([]os.FileInfo, error) {
+	f, err := fs.Open(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	entries, err := f.Readdir(-1)
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+
+	err = f.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	return entries, nil
 }
 
 func readdirnames(fs fs.FS, dir string) ([]string, error) {
