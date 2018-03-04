@@ -2,7 +2,6 @@ package archiver
 
 import (
 	"context"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sync"
@@ -81,7 +80,22 @@ func TestNewArchiverSaveFile(t *testing.T) {
 }
 
 func save(t testing.TB, filename string, data []byte) {
-	err := ioutil.WriteFile(filename, data, 0644)
+	f, err := os.Create(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = f.Write(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = f.Sync()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = f.Close()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,16 +147,31 @@ func TestFileChanged(t *testing.T) {
 		Modify  func(t testing.TB, filename string)
 	}{
 		{
-			Name: "same-content",
+			Name: "same-content-new-file",
 			Modify: func(t testing.TB, filename string) {
-				time.Sleep(5 * time.Millisecond)
+				err := os.Remove(filename)
+				if err != nil && !os.IsNotExist(err) {
+					t.Fatal(err)
+				}
+
+				save(t, filename, defaultContent)
+			},
+		},
+		{
+			Name: "same-content-new-timestamp",
+			Modify: func(t testing.TB, filename string) {
+				time.Sleep(50 * time.Millisecond)
 				save(t, filename, defaultContent)
 			},
 		},
 		{
 			Name: "other-content",
 			Modify: func(t testing.TB, filename string) {
-				time.Sleep(5 * time.Millisecond)
+				err := os.Remove(filename)
+				if err != nil && !os.IsNotExist(err) {
+					t.Fatal(err)
+				}
+
 				save(t, filename, []byte("xxxxxx"))
 			},
 		},
